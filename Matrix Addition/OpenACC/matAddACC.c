@@ -1,4 +1,5 @@
-//pgcc -acc -o matAddACC matAddACC.c
+// pgcc -acc -o matAddACC matAddACC.c
+// ./matAddACC 1000; default is 1000 for no arg
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -63,7 +64,13 @@ int main(int argc, char *argv[]) {
     generate_random_matrix(N, A);
     generate_random_matrix(N, B);
 
+    clock_t start = clock();
+    
     add_matrices(N, A, B, C);
+
+    clock_t end = clock();
+    double time_spent = (double)(end - start) / CLOCKS_PER_SEC * 1000.0;
+    printf("Time taken to add matrices: %f ms\n", time_spent);
 
     if (PRINT_FLAG == 1) {
         printf("Matrix A:\n");

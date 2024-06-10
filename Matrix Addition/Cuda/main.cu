@@ -3,6 +3,7 @@
 #include <iostream>
 #include "kernel.cu"
 #include "support.h"
+#include <time.h>
 
 int main (int argc, char *argv[])
 {

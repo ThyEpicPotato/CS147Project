@@ -1,4 +1,5 @@
-//gcc -std=c99 -o matAddOpenCL matAddOpenCL.c -lOpenCL -lm
+// gcc -std=c99 -o matAddOpenCL matAddOpenCL.c -lOpenCL -lm
+// ./matAddOpenCL N; default is 1000 for no arg
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -71,7 +72,6 @@ int main(int argc, char *argv[]) {
     generate_random_matrix(N, A);
     generate_random_matrix(N, B);
 
-    // OpenCL setup
     cl_platform_id platform_id;
     cl_device_id device_id;
     cl_context context;
@@ -86,21 +86,18 @@ int main(int argc, char *argv[]) {
 
     cl_int err;
 
-    // Get platform and device information
     err = clGetPlatformIDs(1, &platform_id, NULL);
     check_error(err, "clGetPlatformIDs");
     err = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_DEFAULT, 1, &device_id, NULL);
     check_error(err, "clGetDeviceIDs");
 
-    // Create an OpenCL context
     context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &err);
     check_error(err, "clCreateContext");
 
-    // Create a command queue
-    command_queue = clCreateCommandQueueWithProperties(context, device_id, 0, &err);
+    cl_queue_properties properties[] = { CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+    command_queue = clCreateCommandQueueWithProperties(context, device_id, properties, &err);
     check_error(err, "clCreateCommandQueueWithProperties");
 
-    // Create memory buffers on the device for each matrix
     bufA = clCreateBuffer(context, CL_MEM_READ_ONLY, N * N * sizeof(float), NULL, &err);
     check_error(err, "clCreateBuffer(bufA)");
     bufB = clCreateBuffer(context, CL_MEM_READ_ONLY, N * N * sizeof(float), NULL, &err);
@@ -108,17 +105,14 @@ int main(int argc, char *argv[]) {
     bufC = clCreateBuffer(context, CL_MEM_WRITE_ONLY, N * N * sizeof(float), NULL, &err);
     check_error(err, "clCreateBuffer(bufC)");
 
-    // Copy the matrices A and B to their respective memory buffers
     err = clEnqueueWriteBuffer(command_queue, bufA, CL_TRUE, 0, N * N * sizeof(float), A, 0, NULL, NULL);
     check_error(err, "clEnqueueWriteBuffer(bufA)");
     err = clEnqueueWriteBuffer(command_queue, bufB, CL_TRUE, 0, N * N * sizeof(float), B, 0, NULL, NULL);
     check_error(err, "clEnqueueWriteBuffer(bufB)");
 
-    // Create a program from the kernel source
     program = clCreateProgramWithSource(context, 1, &matrix_add_kernel, NULL, &err);
     check_error(err, "clCreateProgramWithSource");
 
-    // Build the program
     err = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
     if (err != CL_SUCCESS) {
         size_t log_size;
@@ -130,11 +124,9 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    // Create the OpenCL kernel
     kernel = clCreateKernel(program, "matrix_add", &err);
     check_error(err, "clCreateKernel");
 
-    // Set the arguments of the kernel
     err = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufA);
     check_error(err, "clSetKernelArg(bufA)");
     err = clSetKernelArg(kernel, 1, sizeof(cl_mem), &bufB);
@@ -144,24 +136,29 @@ int main(int argc, char *argv[]) {
     err = clSetKernelArg(kernel, 3, sizeof(int), &N);
     check_error(err, "clSetKernelArg(N)");
 
-    // Check the maximum work-group size supported by the device
     err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(size_t), &max_local_size, NULL);
     check_error(err, "clGetKernelWorkGroupInfo");
 
-    // Adjust local_size if necessary
     if (local_size[0] * local_size[1] > max_local_size) {
         local_size[0] = local_size[1] = (size_t) sqrt(max_local_size);
     }
 
-    // Ensure global_size is a multiple of local_size
     global_size[0] = (global_size[0] + local_size[0] - 1) / local_size[0] * local_size[0];
     global_size[1] = (global_size[1] + local_size[1] - 1) / local_size[1] * local_size[1];
 
-    // Execute the OpenCL kernel
-    err = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL, global_size, local_size, 0, NULL, NULL);
+    // Execute
+    cl_event event;
+    err = clEnqueueNDRangeKernel(command_queue, kernel, 2, NULL, global_size, local_size, 0, NULL, &event);
     check_error(err, "clEnqueueNDRangeKernel");
 
-    // Read the memory buffer C on the device to the local variable C
+    clFinish(command_queue);
+
+    cl_ulong time_start, time_end;
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START, sizeof(time_start), &time_start, NULL);
+    clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END, sizeof(time_end), &time_end, NULL);
+    double time_spent = (time_end - time_start) / 1000000.0;
+    printf("Time taken to add matrices: %f ms\n", time_spent);
+
     err = clEnqueueReadBuffer(command_queue, bufC, CL_TRUE, 0, N * N * sizeof(float), C, 0, NULL, NULL);
     check_error(err, "clEnqueueReadBuffer(bufC)");
 
